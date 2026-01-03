@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+redis
+python-socketio
+httpx
+passlib[argon2]
+pydantic
+python-multipart
+websockets
+yt-dlp
+spotdl
+requests
+beautifulsoup4
