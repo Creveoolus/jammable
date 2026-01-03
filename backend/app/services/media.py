@@ -141,36 +141,53 @@ def _extract_info(url: str) -> Optional[Dict[str, Any]]:
             if 'youtube.com' in url or 'youtu.be' in url:
                 source = 'youtube'
 
-    with YoutubeDL(ydl_opts) as ydl:
-        try:
+    # Retry mechanism for proxy failures
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
             # We must download to get the file
             info = ydl.extract_info(url, download=True)
             
             # If it's a playlist or search result, take the first entry
             if 'entries' in info:
                 info = info['entries'][0]
-                
-            # Determine filename
-            filename = ydl.prepare_filename(info)
-            # We want the relative path for the frontend
-            # prepare_filename returns absolute path because outtmpl is absolute
-            # We need relative to backend root (which is where main.py runs? or static mount?)
-            # The mount is at /static.
-            # filename: c:\...\static\media\id.ext
-            basename = os.path.basename(filename)
-            stream_url = f"/static/media/{basename}"
-                
-            return {
-                "stream_url": stream_url,
-                "title": info.get('title', 'Unknown Track'),
-                "author": info.get('uploader') or info.get('artist') or info.get('creator') or info.get('channel'),
-                "thumbnail": info.get('thumbnail'),
-                "duration": info.get('duration'),
-                "source": source
-            }
-        except Exception as e:
+            
+            return _process_info(ydl, info, source)
+            
+    except Exception as e:
+        error_msg = str(e).lower()
+        if proxy_url and ('proxy' in error_msg or 'timeout' in error_msg or 'connection' in error_msg):
+            logger.warning(f"Proxy failed: {e}. Retrying without proxy.")
+            if 'proxy' in ydl_opts:
+                del ydl_opts['proxy']
+            
+            try:
+                with YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    if 'entries' in info:
+                        info = info['entries'][0]
+                    return _process_info(ydl, info, source)
+            except Exception as e2:
+                logger.error(f"Retry without proxy also failed: {e2}")
+                return None
+        else:
             logger.error(f"yt-dlp extraction error: {e}")
             return None
+
+def _process_info(ydl, info, source):
+    # Determine filename
+    filename = ydl.prepare_filename(info)
+    # We want the relative path for the frontend
+    basename = os.path.basename(filename)
+    stream_url = f"/static/media/{basename}"
+        
+    return {
+        "stream_url": stream_url,
+        "title": info.get('title', 'Unknown Track'),
+        "author": info.get('uploader') or info.get('artist') or info.get('creator') or info.get('channel'),
+        "thumbnail": info.get('thumbnail'),
+        "duration": info.get('duration'),
+        "source": source
+    }
 
 async def resolve_media(url: str) -> Optional[Dict[str, Any]]:
     """
